@@ -1,7 +1,9 @@
+use arrow::array::AsArray;
 use std::borrow::Cow;
 use wgpu::util::DeviceExt;
 
-async fn run_query() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     // GPU
     let instance = wgpu::Instance::default();
     let adapter = instance
@@ -17,7 +19,28 @@ async fn run_query() -> anyhow::Result<()> {
         .await?;
 
     // DATA
-    let input_data: Vec<i32> = vec![20, 25, 30, 35, 40];
+    let mut dal_builder = opendal::services::Fs::default().root(".");
+    let dal_op = opendal::Operator::new(dal_builder)?.finish();
+    let dal_buffer = dal_op.read("data/alltypes_plain.parquet").await?;
+    let dal_bytes = dal_buffer.to_bytes();
+
+    let parquet_builder =
+        parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(dal_bytes)?;
+    let mut parquet_reader = parquet_builder.build()?;
+
+    let batch = parquet_reader
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No batches found"))??;
+
+    // println!("{:?}", batch);
+
+    let id_col = batch
+        .column_by_name("id")
+        .expect("Column id missing")
+        .as_primitive::<arrow::datatypes::Int32Type>();
+
+    let input_data: &[i32] = id_col.values();
+    println!("Result from File: {:?}", input_data);
     let size = (input_data.len() * std::mem::size_of::<i32>()) as u64;
 
     // BUFFERS
@@ -112,8 +135,4 @@ async fn run_query() -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn main() {
-    pollster::block_on(run_query()).unwrap();
 }
