@@ -2,21 +2,13 @@ use arrow::array::AsArray;
 use std::borrow::Cow;
 use wgpu::util::DeviceExt;
 
+mod gpu;
+mod jit;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // GPU
-    let instance = wgpu::Instance::default();
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            ..Default::default()
-        })
-        .await
-        .expect("Failed to get an adapter");
-
-    let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor::default())
-        .await?;
+    let gpu = gpu::Gpu::new().await;
 
     // DATA
     let mut dal_builder = opendal::services::Fs::default().root(".");
@@ -44,13 +36,15 @@ async fn main() -> anyhow::Result<()> {
     let size = (input_data.len() * std::mem::size_of::<i32>()) as u64;
 
     // BUFFERS
-    let input_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Input Buffer"),
-        contents: bytemuck::cast_slice(&input_data),
-        usage: wgpu::BufferUsages::STORAGE,
-    });
+    let input_buffer = gpu
+        .device
+        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Input Buffer"),
+            contents: bytemuck::cast_slice(&input_data),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
 
-    let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+    let output_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Output Buffer"),
         size,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
@@ -58,31 +52,39 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // GPU TO CPU BUFFER
-    let stagging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+    let stagging_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Staging Buffer"),
         size,
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
 
+    // JIT WGSL
+    let user_request = jit::Operation::Add(10);
+    let wgsl = jit::ShaderBuilder::build_projection(user_request);
+
     // LOAD SHADER
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("Projection Shader"),
-        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
-    });
+    let shader = gpu
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("JIT Projection Shader"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(&wgsl)),
+        });
 
     // PIPELINE
-    let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("Compute Pipeline"),
-        layout: None,
-        module: &shader,
-        entry_point: Some("main"),
-        compilation_options: Default::default(),
-        cache: None,
-    });
+    let compute_pipeline = gpu
+        .device
+        .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Compute Pipeline"),
+            layout: None,
+            module: &shader,
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
 
     // BIND GPOUP
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    let bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
         layout: &compute_pipeline.get_bind_group_layout(0),
         entries: &[
@@ -98,8 +100,9 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // EXECUTE
-    let mut encoder =
-        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    let mut encoder = gpu
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
     {
         let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -114,14 +117,14 @@ async fn main() -> anyhow::Result<()> {
 
     // COPY TO STAGGING BUFFER
     encoder.copy_buffer_to_buffer(&output_buffer, 0, &stagging_buffer, 0, size);
-    queue.submit(Some(encoder.finish()));
+    gpu.queue.submit(Some(encoder.finish()));
 
     // BACK 2 CPU
     let buffer_slice = stagging_buffer.slice(..);
     let (sender, receiver) = tokio::sync::oneshot::channel();
     buffer_slice.map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
 
-    let _ = device.poll(wgpu::PollType::Wait {
+    let _ = gpu.device.poll(wgpu::PollType::Wait {
         submission_index: None,
         timeout: None,
     });
