@@ -43,8 +43,18 @@ async fn main() -> anyhow::Result<()> {
     let stagging_buffer = gpu.stagging_buffer("Staging Buffer", size);
 
     // JIT WGSL
-    let user_request = jit::Operation::Add(10);
-    let wgsl = jit::ShaderBuilder::build_projection(user_request);
+    // ((id + 2) * 5) - 7
+    let query = jit::Expression::Subtract(
+        Box::new(jit::Expression::Multiply(
+            Box::new(jit::Expression::Add(
+                Box::new(jit::Expression::Column(0)),
+                Box::new(jit::Expression::Literal(2)),
+            )),
+            Box::new(jit::Expression::Literal(5)),
+        )),
+        Box::new(jit::Expression::Literal(7)),
+    );
+    let wgsl = jit::generate_shader(&query, 1);
 
     // LOAD SHADER
     let shader = gpu
