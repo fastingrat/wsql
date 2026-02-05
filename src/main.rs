@@ -1,6 +1,5 @@
 use arrow::array::AsArray;
 use std::borrow::Cow;
-use wgpu::util::DeviceExt;
 
 mod gpu;
 mod jit;
@@ -36,28 +35,12 @@ async fn main() -> anyhow::Result<()> {
     let size = (input_data.len() * std::mem::size_of::<i32>()) as u64;
 
     // BUFFERS
-    let input_buffer = gpu
-        .device
-        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Input Buffer"),
-            contents: bytemuck::cast_slice(&input_data),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
+    let input_buffer = gpu.input_buffer("Input Buffer", &input_data);
 
-    let output_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Output Buffer"),
-        size,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    });
+    let output_buffer = gpu.output_buffer("Output Buffer", size);
 
     // GPU TO CPU BUFFER
-    let stagging_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Staging Buffer"),
-        size,
-        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
+    let stagging_buffer = gpu.stagging_buffer("Staging Buffer", size);
 
     // JIT WGSL
     let user_request = jit::Operation::Add(10);

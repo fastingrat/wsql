@@ -1,3 +1,5 @@
+use wgpu::util::DeviceExt;
+
 pub struct Gpu {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -20,5 +22,33 @@ impl Gpu {
             .expect("Unable to Request Device");
 
         Self { device, queue }
+    }
+
+    pub fn input_buffer(&self, name: &str, contents: &[i32]) -> wgpu::Buffer {
+        self.device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(name),
+                contents: bytemuck::cast_slice(&contents),
+                usage: wgpu::BufferUsages::STORAGE,
+            })
+    }
+
+    // Should merge output_buffer and stagging_buffer into one genric function
+    pub fn output_buffer(&self, name: &str, size: u64) -> wgpu::Buffer {
+        self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(name),
+            size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        })
+    }
+
+    pub fn stagging_buffer(&self, name: &str, size: u64) -> wgpu::Buffer {
+        self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(name),
+            size,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
     }
 }
