@@ -16,7 +16,7 @@ pub fn translate(expr: &Expression) -> String {
     }
 }
 
-pub fn generate_shader(expr: &Expression, col_count: u32) -> String {
+pub fn generate_shader(expr: &Expression, col_count: u32, row_count: u32) -> String {
     let mut bindings = String::new();
 
     // Input bindings for every column being used
@@ -42,6 +42,7 @@ pub fn generate_shader(expr: &Expression, col_count: u32) -> String {
             @compute @workgroup_size(64)
             fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {{
                 let idx = global_id.x;
+                if (idx >= {row_count}u) {{ return; }}
                 out_col[idx] = {logic};
             }}
         "#

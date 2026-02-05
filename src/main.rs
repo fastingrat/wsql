@@ -32,6 +32,8 @@ async fn main() -> anyhow::Result<()> {
 
     let input_data: &[i32] = id_col.values();
     println!("Result from File: {:?}", input_data);
+    let rows = input_data.len() as u32;
+    let groups = (rows + 63) / 64;
     let size = (input_data.len() * std::mem::size_of::<i32>()) as u64;
 
     // BUFFERS
@@ -54,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
         )),
         Box::new(jit::Expression::Literal(7)),
     );
-    let wgsl = jit::generate_shader(&query, 1);
+    let wgsl = jit::generate_shader(&query, 1, rows);
 
     // LOAD SHADER
     let shader = gpu
@@ -105,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
 
         compute_pass.set_pipeline(&compute_pipeline);
         compute_pass.set_bind_group(0, &bind_group, &[]);
-        compute_pass.dispatch_workgroups(input_data.len() as u32, 1, 1);
+        compute_pass.dispatch_workgroups(groups, 1, 1);
     }
 
     // COPY TO STAGGING BUFFER
