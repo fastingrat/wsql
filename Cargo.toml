@@ -1,0 +1,16 @@
+[package]
+name = "wsql"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wgpu = "28.0.0"
+pollster = "0.4.0"
+
+arrow = "57.2.0"
+opendal = "0.55.0"
+
+tokio = { version = "1", features = ["full"] }
+bytemuck = { version = "1", features = ["derive"] }
+anyhow = "1.0"
+
