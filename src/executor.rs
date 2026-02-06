@@ -12,11 +12,16 @@ impl QueryExecutor {
     pub async fn execute_batch(
         &self,
         batch: &arrow::record_batch::RecordBatch,
-        query: &jit::Expression,
+        projection: &jit::Expression,
+        filter: Option<&jit::Expression>,
     ) -> anyhow::Result<Vec<i32>> {
         let mut used_cols = std::collections::BTreeSet::new();
         // Columns in the query
-        jit::collect_columns(query, &mut used_cols);
+        jit::collect_columns(projection, &mut used_cols);
+
+        if let Some(f) = filter {
+            jit::collect_columns(f, &mut used_cols);
+        }
 
         // Map columns to sequential bindings
         let mut mapping = std::collections::BTreeMap::new();
@@ -25,7 +30,7 @@ impl QueryExecutor {
         }
 
         // Generate shader from mapping
-        let wgsl = jit::generate_shader(query, &mapping);
+        let wgsl = jit::generate_fused_shader(projection, filter, &mapping);
 
         // LOAD SHADER
         let shader = self

@@ -52,9 +52,51 @@ async fn test_simple_substrait_lite() {
         Box::new(wsql::jit::Expression::Literal(7)),
     );
 
-    let result = executor.execute_batch(&batch, &query).await.unwrap();
+    let result = executor.execute_batch(&batch, &query, None).await.unwrap();
 
     assert_eq!(result, vec![23, 28, 33, 38, 13, 18, 3, 8])
 
     // println!("Result from GPU: {:?}", result);
+}
+
+#[tokio::test]
+async fn test_simple_filter_sparse() {
+    use std::sync::Arc;
+    use wsql::jit::Expression;
+
+    let gpu = wsql::gpu::Gpu::new().await;
+    let executor = wsql::executor::QueryExecutor::new(gpu);
+
+    // DATA
+    let schema = std::sync::Arc::new(arrow::datatypes::Schema::new(vec![
+        arrow::datatypes::Field::new("id", arrow::datatypes::DataType::Int32, false),
+    ]));
+
+    let batch = arrow::array::RecordBatch::try_new(
+        schema,
+        vec![Arc::new(arrow::array::Int32Array::from(vec![
+            8, 9, 10, 11, 12, 13, 14, 15, 16,
+        ]))],
+    )
+    .unwrap();
+
+    // QUERY: select id where id > 12
+    let projection = Expression::Column(0);
+    let query = Expression::GreaterThan(
+        Box::new(Expression::Column(0)),
+        Box::new(Expression::Literal(12)),
+    );
+
+    // [-2147483648, -2147483648, -2147483648, -2147483648, -2147483648, 13, 14, 15, 16]
+    let result = executor
+        .execute_batch(&batch, &projection, Some(&query))
+        .await
+        .unwrap();
+
+    assert_eq!(result[0], -2147483648);
+    assert_eq!(result[4], -2147483648);
+    assert_eq!(result[5], 13);
+    assert_eq!(result[6], 14);
+    assert_eq!(result[7], 15);
+    assert_eq!(result[8], 16);
 }
