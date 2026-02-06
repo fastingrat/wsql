@@ -60,7 +60,8 @@ impl Gpu {
         })
     }
 
-    pub fn metadata_buffer(&self, name: &str, params: QueryParams) -> wgpu::Buffer {
+    pub fn metadata_buffer(&self, name: &str, row_count: u32) -> wgpu::Buffer {
+        let params = QueryParams { row_count };
         self.device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(name),
