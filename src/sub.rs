@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use prost::Message;
 use substrait::proto::{
     Plan,
-    expression::{RexType, reference_segment as direct_reference, field_reference},
+    expression::{RexType, field_reference, reference_segment as direct_reference},
     extensions::simple_extension_declaration::MappingType,
 };
 
@@ -93,5 +93,34 @@ pub fn lower_expression(
         }
 
         _ => anyhow::bail!("Unsupported Substrait type"),
+    }
+}
+
+pub fn get_project_expression(plan: &Plan) -> anyhow::Result<Vec<substrait::proto::Expression>> {
+    // Get the root
+    let rel = plan
+        .relations
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("Plan has no relations"))?
+        .rel_type
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Relation has no type"))?;
+
+    match rel {
+        substrait::proto::plan_rel::RelType::Root(rel_root) => {
+            let inner_rel = rel_root
+                .input
+                .as_ref()
+                .and_then(|r| r.rel_type.as_ref())
+                .ok_or_else(|| anyhow::anyhow!("Root has no input relation"))?;
+
+            match inner_rel {
+                substrait::proto::rel::RelType::Project(project_rel) => {
+                    Ok(project_rel.expressions.clone())
+                }
+                _ => anyhow::bail!("Expected Project relation, found {:?}", inner_rel),
+            }
+        }
+        _ => anyhow::bail!("Expected Root relation"),
     }
 }
