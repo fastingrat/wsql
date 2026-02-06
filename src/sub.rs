@@ -124,3 +124,25 @@ pub fn get_project_expression(plan: &Plan) -> anyhow::Result<Vec<substrait::prot
         _ => anyhow::bail!("Expected Root relation"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lower_add_expression() {
+        let file = "tests/fixtures/simple_add.json";
+        let json_plan = std::fs::read_to_string(file).expect(&format!("Unable to open {file}"));
+        let plan: substrait::proto::Plan =
+            serde_json::from_str(&json_plan).expect("Something is wrong with json_plan");
+
+        let fn_map = get_functions_map(&plan);
+        let exprs = get_project_expression(&plan).expect("Couldnt get project expr");
+        let jit_expr = lower_expression(&exprs[0], &fn_map).expect("Couldnt lower expr");
+
+        match jit_expr {
+            jit::Expression::Add(_, _) => assert!(true),
+            _ => panic!("Expected Add expression"),
+        }
+    }
+}

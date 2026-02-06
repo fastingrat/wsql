@@ -1,0 +1,32 @@
+{
+  "extension_uris": [
+    { "extension_uri_anchor": 1, "uri": "/functions_arithmetic.yaml" }
+  ],
+  "extensions": [
+    {
+      "extension_function": {
+        "extension_uri_reference": 1,
+        "function_anchor": 1,
+        "name": "add"
+      }
+    }
+  ],
+  "relations": [{
+    "root": {
+      "input": {
+        "project": {
+          "input": { "read": { "virtual": { "values": [] } } },
+          "expressions": [{
+            "scalar_function": {
+              "function_reference": 1,
+              "arguments": [
+                { "value": { "selection": { "direct_reference": { "struct_field": { "field": 0 } } } } },
+                { "value": { "literal": { "i32": 10 } } }
+              ]
+            }
+          }]
+        }
+      }
+    }
+  }]
+}
