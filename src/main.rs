@@ -3,6 +3,7 @@ use std::borrow::Cow;
 
 mod gpu;
 mod jit;
+mod sub;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
