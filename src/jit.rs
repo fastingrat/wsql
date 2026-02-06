@@ -6,43 +6,76 @@ pub enum Expression {
     Multiply(Box<Expression>, Box<Expression>),
 }
 
-pub fn translate(expr: &Expression) -> String {
+pub fn collect_columns(expr: &Expression, cols: &mut std::collections::BTreeSet<u32>) {
     match expr {
-        Expression::Literal(v) => format!("{}i", v),
-        Expression::Column(i) => format!("in_col_{}[idx]", i),
-        Expression::Add(l, r) => format!("({} + {})", translate(l), translate(r)),
-        Expression::Subtract(l, r) => format!("({} - {})", translate(l), translate(r)),
-        Expression::Multiply(l, r) => format!("({} * {})", translate(l), translate(r)),
+        Expression::Column(i) => {
+            cols.insert(*i);
+        }
+        Expression::Add(l, r) | Expression::Subtract(l, r) | Expression::Multiply(l, r) => {
+            collect_columns(l, cols);
+            collect_columns(r, cols);
+        }
+        Expression::Literal(_) => {}
     }
 }
 
-pub fn generate_shader(expr: &Expression, col_count: u32, row_count: u32) -> String {
+pub fn translate(expr: &Expression, mapping: &std::collections::BTreeMap<u32, u32>) -> String {
+    match expr {
+        Expression::Literal(v) => format!("{}i", v),
+        Expression::Column(i) => {
+            let binding_idx = mapping.get(i).expect("Column mapping missing");
+            format!("in_col_{}[idx]", binding_idx)
+        }
+        Expression::Add(l, r) => format!("({} + {})", translate(l, mapping), translate(r, mapping)),
+        Expression::Subtract(l, r) => {
+            format!("({} - {})", translate(l, mapping), translate(r, mapping))
+        }
+        Expression::Multiply(l, r) => {
+            format!("({} * {})", translate(l, mapping), translate(r, mapping))
+        }
+    }
+}
+
+pub fn generate_shader(
+    expr: &Expression,
+    mapping: &std::collections::BTreeMap<u32, u32>,
+) -> String {
     let mut bindings = String::new();
 
-    // Input bindings for every column being used
-    for i in 0..col_count {
+    // Input bindings for every column from the mapping
+    for (_col_idx, binding_idx) in mapping {
         bindings.push_str(&format!(
             "@group(0) @binding({}) var<storage, read> in_col_{}: array<i32>;\n",
-            i, i
+            binding_idx, binding_idx
         ));
     }
 
     // output buffer
+    let out_slot = mapping.len() as u32;
     bindings.push_str(&format!(
-        "@group(0) @binding({}) var<storage, read_write> out_col: array<i32>;\n",
-        col_count
+        "@group(0) @binding({out_slot}) var<storage, read_write> out_col: array<i32>;\n",
     ));
 
-    let logic = translate(expr);
+    // uniform buffer
+    bindings.push_str(&format!(
+        "@group(0) @binding({uniform_slot}) var<storage, read> params: QueryParams;\n",
+        uniform_slot = out_slot + 1
+    ));
+
+    let logic = translate(expr, mapping);
 
     format!(
         r#"
+            struct QueryParams {{
+                row_count: u32,
+            }}
+
             {bindings}
 
             @compute @workgroup_size(64)
             fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {{
                 let idx = global_id.x;
-                if (idx >= {row_count}u) {{ return; }}
+                if (idx >= params.row_count) {{ return; }}
                 out_col[idx] = {logic};
             }}
         "#
