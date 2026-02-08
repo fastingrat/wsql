@@ -48,6 +48,10 @@ pub fn lower_expression(
                 substrait::proto::expression::literal::LiteralType::I32(v) => {
                     Ok(jit::Expression::Literal(jit::LiteralTypes::I32(*v)))
                 }
+                // Not sure to have date and i32 seperate or just translte Date to i32
+                substrait::proto::expression::literal::LiteralType::Date(v) => {
+                    Ok(jit::Expression::Literal(jit::LiteralTypes::Date(*v)))
+                }
                 substrait::proto::expression::literal::LiteralType::Fp32(v) => {
                     Ok(jit::Expression::Literal(jit::LiteralTypes::F32(*v)))
                 }

@@ -14,6 +14,7 @@ pub enum Expression {
 pub enum LiteralTypes {
     I32(i32),
     F32(f32),
+    Date(i32),
 }
 
 pub fn collect_columns(expr: &Expression, cols: &mut std::collections::BTreeSet<u32>) {
@@ -39,7 +40,7 @@ pub fn collect_columns(expr: &Expression, cols: &mut std::collections::BTreeSet<
 pub fn translate(expr: &Expression, mapping: &std::collections::BTreeMap<u32, u32>) -> String {
     match expr {
         Expression::Literal(val) => match val {
-            LiteralTypes::I32(v) => format!("{}i", v),
+            LiteralTypes::I32(v) | LiteralTypes::Date(v) => format!("{}i", v),
             LiteralTypes::F32(v) => format!("{}f", v),
         },
         Expression::Column(i) => {
