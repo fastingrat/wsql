@@ -6,6 +6,7 @@ async fn test_simple_substrait_lite() {
     let executor = wsql::executor::QueryExecutor::new(gpu);
 
     // DATA
+    #[allow(unused_mut)] // https://docs.rs/opendal/0.55.0/opendal/#init-a-service
     let mut dal_builder = opendal::services::Fs::default().root("tests");
     let dal_op = opendal::Operator::new(dal_builder)
         .expect("Unable to create new OpenDAL Operator")

@@ -73,7 +73,7 @@ pub fn generate_fused_shader(
     let mut bindings = String::new();
 
     // Input bindings for every column from the mapping
-    for (_col_idx, binding_idx) in mapping {
+    for binding_idx in mapping.values() {
         bindings.push_str(&format!(
             "@group(0) @binding({}) var<storage, read> in_col_{}: array<i32>;\n",
             binding_idx, binding_idx
@@ -123,7 +123,7 @@ pub fn generate_shader(
     let mut bindings = String::new();
 
     // Input bindings for every column from the mapping
-    for (_col_idx, binding_idx) in mapping {
+    for binding_idx in mapping.values() {
         bindings.push_str(&format!(
             "@group(0) @binding({}) var<storage, read> in_col_{}: array<i32>;\n",
             binding_idx, binding_idx

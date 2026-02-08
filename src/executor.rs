@@ -57,7 +57,7 @@ impl QueryExecutor {
         // BUFFERS
         let row_count = batch.num_rows() as u32;
         let size = (row_count * 4) as u64;
-        let workgroup_count = (row_count + 63) / 64;
+        let workgroup_count = row_count.div_ceil(64);
         let mut input_buffers = Vec::new();
         let output_buffer = self.gpu.output_buffer("out", size);
         let stagging_buffer = self.gpu.stagging_buffer("stage", size);

@@ -36,7 +36,7 @@ impl Gpu {
         self.device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(name),
-                contents: bytemuck::cast_slice(&contents),
+                contents: bytemuck::cast_slice(contents),
                 usage: wgpu::BufferUsages::STORAGE,
             })
     }

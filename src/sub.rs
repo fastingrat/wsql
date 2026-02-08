@@ -132,7 +132,8 @@ mod tests {
     #[test]
     fn test_lower_add_expression() {
         let file = "tests/fixtures/simple_add.json";
-        let json_plan = std::fs::read_to_string(file).expect(&format!("Unable to open {file}"));
+        let json_plan = std::fs::read_to_string(file)
+            .unwrap_or_else(|e| panic!("Unable to open {file} due to {e}"));
         let plan: substrait::proto::Plan =
             serde_json::from_str(&json_plan).expect("Something is wrong with json_plan");
 
@@ -141,7 +142,17 @@ mod tests {
         let jit_expr = lower_expression(&exprs[0], &fn_map).expect("Couldnt lower expr");
 
         match jit_expr {
-            jit::Expression::Add(_, _) => assert!(true),
+            jit::Expression::Add(l, r) => {
+                match *l {
+                    jit::Expression::Column(idx) => assert_eq!(idx, 0),
+                    _ => panic!("Let side of Add should be Coulmn 0"),
+                }
+                match *r {
+                    jit::Expression::Literal(val) => assert_eq!(val, 10),
+                    _ => panic!("Rgiht side of Add should be 10"),
+                }
+            }
+
             _ => panic!("Expected Add expression"),
         }
     }
