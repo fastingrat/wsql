@@ -1,5 +1,5 @@
 pub enum Expression {
-    Literal(i32),
+    Literal(LiteralTypes),
     Column(u32),
     Add(Box<Expression>, Box<Expression>),
     Subtract(Box<Expression>, Box<Expression>),
@@ -8,6 +8,12 @@ pub enum Expression {
     LessThan(Box<Expression>, Box<Expression>),
     Equal(Box<Expression>, Box<Expression>),
     And(Box<Expression>, Box<Expression>),
+    Or(Box<Expression>, Box<Expression>),
+}
+
+pub enum LiteralTypes {
+    I32(i32),
+    F32(f32),
 }
 
 pub fn collect_columns(expr: &Expression, cols: &mut std::collections::BTreeSet<u32>) {
@@ -21,7 +27,8 @@ pub fn collect_columns(expr: &Expression, cols: &mut std::collections::BTreeSet<
         | Expression::GreaterThan(l, r)
         | Expression::LessThan(l, r)
         | Expression::Equal(l, r)
-        | Expression::And(l, r) => {
+        | Expression::And(l, r)
+        | Expression::Or(l, r) => {
             collect_columns(l, cols);
             collect_columns(r, cols);
         }
@@ -31,7 +38,10 @@ pub fn collect_columns(expr: &Expression, cols: &mut std::collections::BTreeSet<
 
 pub fn translate(expr: &Expression, mapping: &std::collections::BTreeMap<u32, u32>) -> String {
     match expr {
-        Expression::Literal(v) => format!("{}i", v),
+        Expression::Literal(val) => match val {
+            LiteralTypes::I32(v) => format!("{}i", v),
+            LiteralTypes::F32(v) => format!("{}f", v),
+        },
         Expression::Column(i) => {
             let binding_idx = mapping.get(i).expect("Column mapping missing");
             format!("in_col_{}[idx]", binding_idx)
@@ -54,7 +64,10 @@ pub fn translate(expr: &Expression, mapping: &std::collections::BTreeMap<u32, u3
         }
         Expression::And(l, r) => {
             format!("({} && {})", translate(l, mapping), translate(r, mapping))
-        } // _ => todo!(),
+        }
+        Expression::Or(l, r) => {
+            format!("({} || {})", translate(l, mapping), translate(r, mapping))
+        }
     }
 }
 

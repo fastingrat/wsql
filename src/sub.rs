@@ -37,13 +37,21 @@ pub fn lower_expression(
     match rex {
         // Literals
         // I32
+        // F32
         RexType::Literal(lit) => {
-            if let Some(substrait::proto::expression::literal::LiteralType::I32(v)) =
-                &lit.literal_type
-            {
-                Ok(jit::Expression::Literal(*v))
-            } else {
-                anyhow::bail!("Only I32 literals are supported")
+            let value = lit
+                .literal_type
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Literal missing value"))?;
+
+            match value {
+                substrait::proto::expression::literal::LiteralType::I32(v) => {
+                    Ok(jit::Expression::Literal(jit::LiteralTypes::I32(*v)))
+                }
+                substrait::proto::expression::literal::LiteralType::Fp32(v) => {
+                    Ok(jit::Expression::Literal(jit::LiteralTypes::F32(*v)))
+                }
+                _ => anyhow::bail!("Literal type {:?} is not supported yet", value),
             }
         }
 
@@ -60,6 +68,9 @@ pub fn lower_expression(
             _ => anyhow::bail!("Expected DirectReference"),
         },
 
+        // Scalar Functions
+        // Add
+        // Greater Than
         RexType::ScalarFunction(f) => {
             let func_name = function_map
                 .get(&f.function_reference)
@@ -77,17 +88,20 @@ pub fn lower_expression(
                 lower_expression(arg_expr, function_map)
             });
 
+            let mut next_arg = || -> anyhow::Result<Box<jit::Expression>> {
+                Ok(Box::new(args.next().ok_or_else(|| {
+                    anyhow::anyhow!("Missing argyment for {}", func_name)
+                })??))
+            };
+
             match func_name.as_str() {
-                "add" => Ok(jit::Expression::Add(
-                    Box::new(
-                        args.next()
-                            .ok_or_else(|| anyhow::anyhow!("Missing arg"))??,
-                    ),
-                    Box::new(
-                        args.next()
-                            .ok_or_else(|| anyhow::anyhow!("Missing arg"))??,
-                    ),
-                )),
+                "add" => Ok(jit::Expression::Add(next_arg()?, next_arg()?)),
+                "sub" => Ok(jit::Expression::Subtract(next_arg()?, next_arg()?)),
+                "mul" => Ok(jit::Expression::Multiply(next_arg()?, next_arg()?)),
+                "gt" => Ok(jit::Expression::GreaterThan(next_arg()?, next_arg()?)),
+                "lt" => Ok(jit::Expression::LessThan(next_arg()?, next_arg()?)),
+                "and" => Ok(jit::Expression::And(next_arg()?, next_arg()?)),
+                "or" => Ok(jit::Expression::Or(next_arg()?, next_arg()?)),
                 _ => anyhow::bail!("Unsupported function: {}", func_name),
             }
         }
@@ -148,12 +162,44 @@ mod tests {
                     _ => panic!("Let side of Add should be Coulmn 0"),
                 }
                 match *r {
-                    jit::Expression::Literal(val) => assert_eq!(val, 10),
+                    jit::Expression::Literal(jit::LiteralTypes::I32(val)) => assert_eq!(val, 10),
                     _ => panic!("Rgiht side of Add should be 10"),
                 }
             }
 
             _ => panic!("Expected Add expression"),
+        }
+    }
+
+    #[test]
+    fn test_lower_f32_and_logic() {
+        let json_plan = std::fs::read_to_string("tests/fixtures/f32_logic.json").unwrap();
+        let plan: substrait::proto::Plan = serde_json::from_str(&json_plan).unwrap();
+
+        let fn_map = get_functions_map(&plan);
+        let exprs = get_project_expression(&plan).unwrap();
+        let jit_expr = lower_expression(&exprs[0], &fn_map).expect("Failed to lower f32 logic");
+
+        match jit_expr {
+            jit::Expression::And(l, r) => {
+                match *l {
+                    jit::Expression::GreaterThan(_, r) => {
+                        if let jit::Expression::Literal(jit::LiteralTypes::F32(v)) = *r {
+                            assert_eq!(v, 10.5);
+                        } else {
+                            panic!("Expected F32 literal 10.5");
+                        }
+                    }
+                    _ => panic!("Expected GreaterTHan on left"),
+                }
+                match *r {
+                    #[allow(clippy::assertions_on_constants)]
+                    // Testing if substrate query is parsed correctly and outputs LessThan
+                    jit::Expression::LessThan(_, _) => assert!(true),
+                    _ => panic!("Expected LessThan on the right"),
+                }
+            }
+            _ => panic!("Expected And expression"),
         }
     }
 }

@@ -1,0 +1,37 @@
+{
+  "extensions": [
+    { "extension_function": { "function_anchor": 1, "name": "gt" } },
+    { "extension_function": { "function_anchor": 2, "name": "lt" } },
+    { "extension_function": { "function_anchor": 3, "name": "and" } }
+  ],
+  "relations": [{
+    "root": {
+      "input": {
+        "project": {
+          "input": { "read": { "virtual": { "values": [] } } },
+          "expressions": [{
+            "scalar_function": {
+              "function_reference": 3,
+              "arguments": [
+                { "value": { "scalar_function": {
+                  "function_reference": 1,
+                  "arguments": [
+                    { "value": { "selection": { "direct_reference": { "struct_field": { "field": 0 } } } } },
+                    { "value": { "literal": { "fp32": 10.5 } } }
+                  ]
+                }}},
+                { "value": { "scalar_function": {
+                  "function_reference": 2,
+                  "arguments": [
+                    { "value": { "selection": { "direct_reference": { "struct_field": { "field": 0 } } } } },
+                    { "value": { "literal": { "fp32": 20.5 } } }
+                  ]
+                }}}
+              ]
+            }
+          }]
+        }
+      }
+    }
+  }]
+}

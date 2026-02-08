@@ -46,11 +46,17 @@ async fn test_simple_substrait_lite() {
         Box::new(wsql::jit::Expression::Multiply(
             Box::new(wsql::jit::Expression::Add(
                 Box::new(wsql::jit::Expression::Column(0)),
-                Box::new(wsql::jit::Expression::Literal(2)),
+                Box::new(wsql::jit::Expression::Literal(
+                    wsql::jit::LiteralTypes::I32(2),
+                )),
             )),
-            Box::new(wsql::jit::Expression::Literal(5)),
+            Box::new(wsql::jit::Expression::Literal(
+                wsql::jit::LiteralTypes::I32(5),
+            )),
         )),
-        Box::new(wsql::jit::Expression::Literal(7)),
+        Box::new(wsql::jit::Expression::Literal(
+            wsql::jit::LiteralTypes::I32(7),
+        )),
     );
 
     let result = executor.execute_batch(&batch, &query, None).await.unwrap();
@@ -85,7 +91,7 @@ async fn test_simple_filter_sparse() {
     let projection = Expression::Column(0);
     let query = Expression::GreaterThan(
         Box::new(Expression::Column(0)),
-        Box::new(Expression::Literal(12)),
+        Box::new(Expression::Literal(wsql::jit::LiteralTypes::I32(12))),
     );
 
     // [-2147483648, -2147483648, -2147483648, -2147483648, -2147483648, 13, 14, 15, 16]
