@@ -13,6 +13,7 @@ pub struct PhysicalPlan {
     pub projection: jit::Expression,
     pub filter: Option<jit::Expression>,
     pub is_aggregate: bool,
+    pub column_types: std::collections::HashMap<u32, arrow::datatypes::DataType>,
 }
 
 pub fn decode_plan(bytes: &[u8]) -> anyhow::Result<Plan> {
@@ -164,11 +165,35 @@ pub fn lower_plan(plan: &substrait::proto::Plan) -> anyhow::Result<PhysicalPlan>
     let mut filter = None;
     let mut projection = None;
     let mut is_aggregate = false;
+    let mut column_types = HashMap::new();
+
     while let Some(rel) = current_rel {
         match rel.rel_type.as_ref() {
-            Some(substrait::proto::rel::RelType::Read(_read_rel)) => {
+            Some(substrait::proto::rel::RelType::Read(read_rel)) => {
+                if let Some(base_schema) = &read_rel.base_schema
+                    && let Some(named_struct) = &base_schema.r#struct
+                {
+                    for (i, field_type) in named_struct.types.iter().enumerate() {
+                        let arrow_type = match field_type.kind.as_ref() {
+                            Some(substrait::proto::r#type::Kind::I32(_)) => {
+                                arrow::datatypes::DataType::Int32
+                            }
+                            Some(substrait::proto::r#type::Kind::Fp32(_)) => {
+                                arrow::datatypes::DataType::Float32
+                            }
+                            Some(substrait::proto::r#type::Kind::Date(_)) => {
+                                arrow::datatypes::DataType::Int32
+                            }
+                            _ => arrow::datatypes::DataType::Int32,
+                        };
+
+                        column_types.insert(i as u32, arrow_type);
+                    }
+                }
+
                 break;
             }
+
             Some(substrait::proto::rel::RelType::Filter(filter_rel)) => {
                 filter = Some(lower_expression(
                     filter_rel.condition.as_ref().unwrap(),
@@ -176,6 +201,7 @@ pub fn lower_plan(plan: &substrait::proto::Plan) -> anyhow::Result<PhysicalPlan>
                 )?);
                 current_rel = filter_rel.input.as_ref().map(|b| b.as_ref());
             }
+
             Some(substrait::proto::rel::RelType::Aggregate(aggregate_rel)) => {
                 is_aggregate = true;
                 let measure = aggregate_rel.measures[0]
@@ -210,6 +236,7 @@ pub fn lower_plan(plan: &substrait::proto::Plan) -> anyhow::Result<PhysicalPlan>
     Ok(PhysicalPlan {
         projection: projection.ok_or_else(|| anyhow::anyhow!("No projection found"))?,
         filter,
+        column_types,
         is_aggregate,
     })
 }

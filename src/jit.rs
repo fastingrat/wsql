@@ -39,7 +39,12 @@ pub fn collect_columns(expr: &Expression, cols: &mut std::collections::BTreeSet<
     }
 }
 
-pub fn translate(expr: &Expression, mapping: &std::collections::BTreeMap<u32, u32>) -> String {
+pub fn translate(
+    expr: &Expression,
+    mapping: &std::collections::BTreeMap<u32, u32>,
+    column_types: &std::collections::HashMap<u32, arrow::datatypes::DataType>,
+    is_aggregate: bool,
+) -> String {
     match expr {
         Expression::Literal(val) => match val {
             LiteralTypes::I32(v) | LiteralTypes::Date(v) => format!("{}i", v),
@@ -47,29 +52,66 @@ pub fn translate(expr: &Expression, mapping: &std::collections::BTreeMap<u32, u3
         },
         Expression::Column(i) => {
             let binding_idx = mapping.get(i).expect("Column mapping missing");
-            format!("in_col_{}[idx]", binding_idx)
+            let dtype = column_types.get(i).expect("Missing columns type");
+            if is_aggregate && dtype.is_integer() {
+                format!("f32(in_col_{}[idx])", binding_idx)
+            } else {
+                format!("in_col_{}[idx]", binding_idx)
+            }
         }
-        Expression::Add(l, r) => format!("({} + {})", translate(l, mapping), translate(r, mapping)),
+        Expression::Add(l, r) => format!(
+            "({} + {})",
+            translate(l, mapping, column_types, is_aggregate),
+            translate(r, mapping, column_types, is_aggregate)
+        ),
         Expression::Subtract(l, r) => {
-            format!("({} - {})", translate(l, mapping), translate(r, mapping))
+            format!(
+                "({} - {})",
+                translate(l, mapping, column_types, is_aggregate),
+                translate(r, mapping, column_types, is_aggregate)
+            )
         }
         Expression::Multiply(l, r) => {
-            format!("({} * {})", translate(l, mapping), translate(r, mapping))
+            format!(
+                "({} * {})",
+                translate(l, mapping, column_types, is_aggregate),
+                translate(r, mapping, column_types, is_aggregate)
+            )
         }
         Expression::GreaterThan(l, r) => {
-            format!("({} > {})", translate(l, mapping), translate(r, mapping))
+            format!(
+                "({} > {})",
+                translate(l, mapping, column_types, is_aggregate),
+                translate(r, mapping, column_types, is_aggregate)
+            )
         }
         Expression::LessThan(l, r) => {
-            format!("({} < {})", translate(l, mapping), translate(r, mapping))
+            format!(
+                "({} < {})",
+                translate(l, mapping, column_types, is_aggregate),
+                translate(r, mapping, column_types, is_aggregate)
+            )
         }
         Expression::Equal(l, r) => {
-            format!("({} == {})", translate(l, mapping), translate(r, mapping))
+            format!(
+                "({} == {})",
+                translate(l, mapping, column_types, is_aggregate),
+                translate(r, mapping, column_types, is_aggregate)
+            )
         }
         Expression::And(l, r) => {
-            format!("({} && {})", translate(l, mapping), translate(r, mapping))
+            format!(
+                "({} && {})",
+                translate(l, mapping, column_types, is_aggregate),
+                translate(r, mapping, column_types, is_aggregate)
+            )
         }
         Expression::Or(l, r) => {
-            format!("({} || {})", translate(l, mapping), translate(r, mapping))
+            format!(
+                "({} || {})",
+                translate(l, mapping, column_types, is_aggregate),
+                translate(r, mapping, column_types, is_aggregate)
+            )
         }
     }
 }
@@ -78,16 +120,25 @@ pub fn generate_shader(
     physical_plan: &PhysicalPlan,
     mapping: &std::collections::BTreeMap<u32, u32>,
 ) -> String {
-    let logic = translate(&physical_plan.projection, mapping);
+    let logic = translate(
+        &physical_plan.projection,
+        mapping,
+        &physical_plan.column_types,
+        physical_plan.is_aggregate,
+    );
 
     // check for FILTER
-    let condition = physical_plan
-        .filter
-        .as_ref()
-        .map_or("true".into(), |f| translate(f, mapping));
+    let condition = physical_plan.filter.as_ref().map_or("true".into(), |f| {
+        translate(
+            f,
+            mapping,
+            &physical_plan.column_types,
+            physical_plan.is_aggregate,
+        )
+    });
 
     // data types
-    let scalar_type = if physical_plan.is_aggregate {
+    let output_type = if physical_plan.is_aggregate {
         "f32"
     } else {
         "i32"
@@ -135,16 +186,22 @@ pub fn generate_shader(
     let mut bindings = String::new();
 
     // Input bindings for every column from the mapping
-    for binding_idx in mapping.values() {
+    for (&col_idx, &binding_idx) in mapping {
+        let input_type = if physical_plan.column_types[&col_idx].is_floating() {
+            "f32"
+        } else {
+            "i32"
+        };
+
         bindings.push_str(&format!(
-            "@group(0) @binding({binding_idx}) var<storage, read> in_col_{binding_idx}: array<{scalar_type}>;\n"
+            "@group(0) @binding({binding_idx}) var<storage, read> in_col_{binding_idx}: array<{input_type}>;\n"
         ));
     }
 
     // output buffer
     let out_slot = mapping.len() as u32;
     bindings.push_str(&format!(
-        "@group(0) @binding({out_slot}) var<storage, read_write> out_col: array<{scalar_type}>;\n",
+        "@group(0) @binding({out_slot}) var<storage, read_write> out_col: array<{output_type}>;\n",
     ));
 
     // uniform buffer
@@ -173,7 +230,7 @@ pub fn generate_shader(
             let l_idx = local_id.x;
 
             // init with neutral element (0.0 for sum, i32::MIN for project)
-            var val: {scalar_type} = {sentinel};
+            var val: {output_type} = {sentinel};
 
             // Calculate logic only for valid rows
             if (idx < params.row_count) {{

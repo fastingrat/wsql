@@ -59,11 +59,15 @@ async fn test_simple_substrait_lite() {
         )),
     );
 
+    let mut column_types = std::collections::HashMap::new();
+    column_types.insert(0, arrow::datatypes::DataType::Int32);
+
     // PhysicalPlan
     let physical_plan = wsql::sub::PhysicalPlan {
         projection: query,
         filter: None,
         is_aggregate: false,
+        column_types,
     };
 
     let compiled_query = executor.compile(physical_plan).unwrap();
@@ -105,10 +109,13 @@ async fn test_simple_filter_sparse() {
         Box::new(Expression::Literal(wsql::jit::LiteralTypes::I32(12))),
     );
 
+    let mut column_types = std::collections::HashMap::new();
+    column_types.insert(0, arrow::datatypes::DataType::Int32);
     let physical_plan = wsql::sub::PhysicalPlan {
         projection,
         filter: Some(query),
         is_aggregate: false,
+        column_types,
     };
 
     let compiled_query = executor.compile(physical_plan).unwrap();
@@ -135,13 +142,24 @@ async fn test_gpu_aggregate_sum() {
     // SELECT SUM(col0 * col1)
     let gpu = wsql::gpu::Gpu::new().await;
     let executor = wsql::executor::QueryExecutor::new(gpu);
+
     let json_plan = std::fs::read_to_string("tests/fixtures/sum_project.json").unwrap();
     let plan = serde_json::from_str(&json_plan).unwrap();
-    let physical_plan = wsql::sub::lower_plan(&plan).unwrap();
+
+    let mut physical_plan = wsql::sub::lower_plan(&plan).unwrap();
+    if physical_plan.column_types.is_empty() {
+        physical_plan
+            .column_types
+            .insert(0, arrow::datatypes::DataType::Float32);
+        physical_plan
+            .column_types
+            .insert(1, arrow::datatypes::DataType::Float32);
+    }
     let schema = std::sync::Arc::new(Schema::new(vec![
         Field::new("price", DataType::Float32, false),
         Field::new("discount", DataType::Float32, false),
     ]));
+
     let batch = arrow::record_batch::RecordBatch::try_new(
         schema,
         vec![
@@ -150,9 +168,14 @@ async fn test_gpu_aggregate_sum() {
         ],
     )
     .unwrap();
-    let compiled_query = executor.compile(physical_plan).unwrap();
-    if let wsql::executor::QueryResult::Aggregate(result) =
-        executor.execute(&compiled_query, &batch).await.unwrap()
+
+    let compiled_query = executor
+        .compile(physical_plan)
+        .expect("Failed to compile query");
+    if let wsql::executor::QueryResult::Aggregate(result) = executor
+        .execute(&compiled_query, &batch)
+        .await
+        .expect("Failed to execute batch")
     {
         assert_eq!(result, 50.0)
     }

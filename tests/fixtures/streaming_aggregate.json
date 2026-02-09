@@ -1,0 +1,59 @@
+{
+  "extensions": [
+    {
+      "extension_function": {
+        "extension_uri_reference": 0,
+        "function_anchor": 1,
+        "name": "sum"
+      }
+    }
+  ],
+  "relations": [
+    {
+      "root": {
+        "input": {
+          "aggregate": {
+            "input": {
+              "read": {
+                "common": {
+                  "direct": {}
+                },
+                "virtual": {
+                  "values": []
+                }
+              }
+            },
+            "groupings": [],
+            "measures": [
+              {
+                "measure": {
+                  "function_reference": 1,
+                  "arguments": [
+                    {
+                      "value": {
+                        "selection": {
+                          "direct_reference": {
+                            "struct_field": {
+                              "field": 0
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "phase": "AGGREGATION_PHASE_INITIAL_TO_RESULT",
+                  "output_type": {
+                    "fp32": {}
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "names": [
+          "total_id_sum"
+        ]
+      }
+    }
+  ]
+}
