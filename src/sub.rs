@@ -9,6 +9,12 @@ use substrait::proto::{
 
 use crate::jit;
 
+pub struct PhysicalPlan {
+    pub projection: jit::Expression,
+    pub filter: Option<jit::Expression>,
+    pub is_aggregate: bool,
+}
+
 pub fn decode_plan(bytes: &[u8]) -> anyhow::Result<Plan> {
     Plan::decode(bytes).map_err(|e| anyhow::anyhow!("Failed to decode plan: {e}"))
 }
@@ -73,8 +79,7 @@ pub fn lower_expression(
         },
 
         // Scalar Functions
-        // Add
-        // Greater Than
+        // check jit::Expression for supported Scalar FUnctions
         RexType::ScalarFunction(f) => {
             let func_name = function_map
                 .get(&f.function_reference)
@@ -141,6 +146,72 @@ pub fn get_project_expression(plan: &Plan) -> anyhow::Result<Vec<substrait::prot
         }
         _ => anyhow::bail!("Expected Root relation"),
     }
+}
+
+// FUsing all expressions into one PhysicalPlan
+pub fn lower_plan(plan: &substrait::proto::Plan) -> anyhow::Result<PhysicalPlan> {
+    let root = plan
+        .relations
+        .first()
+        .and_then(|r| r.rel_type.as_ref())
+        .ok_or_else(|| anyhow::anyhow!("Missing root"))?;
+
+    let mut current_rel = match root {
+        substrait::proto::plan_rel::RelType::Root(r) => r.input.as_ref(),
+        _ => anyhow::bail!("Expected Root"),
+    };
+    let fn_map = get_functions_map(plan);
+    let mut filter = None;
+    let mut projection = None;
+    let mut is_aggregate = false;
+    while let Some(rel) = current_rel {
+        match rel.rel_type.as_ref() {
+            Some(substrait::proto::rel::RelType::Read(_read_rel)) => {
+                break;
+            }
+            Some(substrait::proto::rel::RelType::Filter(filter_rel)) => {
+                filter = Some(lower_expression(
+                    filter_rel.condition.as_ref().unwrap(),
+                    &fn_map,
+                )?);
+                current_rel = filter_rel.input.as_ref().map(|b| b.as_ref());
+            }
+            Some(substrait::proto::rel::RelType::Aggregate(aggregate_rel)) => {
+                is_aggregate = true;
+                let measure = aggregate_rel.measures[0]
+                    .measure
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Missing measure in Aggregate"))?;
+                let arg = measure.arguments[0]
+                    .arg_type
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Missing argument in Aggregate function"))?;
+                if let substrait::proto::function_argument::ArgType::Value(v) = arg {
+                    projection = Some(lower_expression(v, &fn_map)?);
+                }
+                current_rel = aggregate_rel.input.as_ref().map(|b| b.as_ref());
+            }
+            Some(substrait::proto::rel::RelType::Project(project_rel)) => {
+                match projection {
+                    None => {
+                        projection = Some(lower_expression(&project_rel.expressions[0], &fn_map)?);
+                    }
+                    Some(jit::Expression::Column(idx)) => {
+                        let expr = &project_rel.expressions[idx as usize];
+                        projection = Some(lower_expression(expr, &fn_map)?);
+                    }
+                    _ => {}
+                }
+                current_rel = project_rel.input.as_ref().map(|b| b.as_ref());
+            }
+            _ => anyhow::bail!("Unsupported relation type"),
+        }
+    }
+    Ok(PhysicalPlan {
+        projection: projection.ok_or_else(|| anyhow::anyhow!("No projection found"))?,
+        filter,
+        is_aggregate,
+    })
 }
 
 #[cfg(test)]

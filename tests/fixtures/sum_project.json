@@ -1,0 +1,34 @@
+{
+  "extensions": [
+    { "extension_function": { "function_anchor": 1, "name": "mul" } },
+    { "extension_function": { "function_anchor": 2, "name": "sum" } }
+  ],
+  "relations": [{
+    "root": {
+      "input": {
+        "aggregate": {
+          "input": {
+            "project": {
+              "input": { "read": { "virtual": { "values": [] } } },
+              "expressions": [{
+                "scalar_function": {
+                  "function_reference": 1,
+                  "arguments": [
+                    { "value": { "selection": { "direct_reference": { "struct_field": { "field": 0 } } } } },
+                    { "value": { "selection": { "direct_reference": { "struct_field": { "field": 1 } } } } }
+                  ]
+                }
+              }]
+            }
+          },
+          "measures": [{
+            "measure": {
+              "function_reference": 2,
+              "arguments": [{ "value": { "selection": { "direct_reference": { "struct_field": { "field": 0 } } } } }]
+            }
+          }]
+        }
+      }
+    }
+  }]
+}

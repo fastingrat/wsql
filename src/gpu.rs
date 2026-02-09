@@ -32,7 +32,7 @@ impl Gpu {
         Self { device, queue }
     }
 
-    pub fn input_buffer(&self, name: &str, contents: &[i32]) -> wgpu::Buffer {
+    pub fn input_buffer<T: bytemuck::Pod>(&self, name: &str, contents: &[T]) -> wgpu::Buffer {
         self.device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(name),

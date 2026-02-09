@@ -24,9 +24,10 @@ Inspired by [Sirius](https://vldb.org/cidrdb/papers/2026/p12-yogatama.pdf), wsql
 - [x] **Date Handling:** Treating dates as `i32` integers for comparison.
 
 #### Step 3: Aggregations
-- [ ] **The "Sum" Kernel:** Using `atomicAdd` in WGSL to sum the results of the project.
-- [ ] **Partial Reductions:** Reducing 6 million rows to 1 row efficiently (Parallel Reduction).
-- [ ] **Global Result Buffer:** Downloading a single number instead of a whole column.
+- [x] **The "Sum" Kernel:** Using `atomicAdd` in WGSL to sum the results of the project.
+    - Use **Shared Memory Tree** instead of hacking f32 into i32 for `atomicAdd`
+- [x] **Partial Reductions:** Reducing 6 million rows to 1 row efficiently (Parallel Reduction).
+- [x] **Global Result Buffer:** Downloading a single number instead of a whole column.
 
 #### Step 4: Substrait Relational
 - [ ] **Relational Walker:** Handling `ReadRel` -> `FilterRel` -> `ProjectRel` -> `AggregateRel`.

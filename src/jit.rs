@@ -1,3 +1,5 @@
+use crate::sub::PhysicalPlan;
+
 pub enum Expression {
     Literal(LiteralTypes),
     Column(u32),
@@ -72,32 +74,77 @@ pub fn translate(expr: &Expression, mapping: &std::collections::BTreeMap<u32, u3
     }
 }
 
-pub fn generate_fused_shader(
-    projection: &Expression,
-    filter: Option<&Expression>,
+pub fn generate_shader(
+    physical_plan: &PhysicalPlan,
     mapping: &std::collections::BTreeMap<u32, u32>,
 ) -> String {
-    let logic = translate(projection, mapping);
+    let logic = translate(&physical_plan.projection, mapping);
 
     // check for FILTER
-    let condition = match filter {
-        Some(expr) => translate(expr, mapping),
-        None => "true".to_string(),
+    let condition = physical_plan
+        .filter
+        .as_ref()
+        .map_or("true".into(), |f| translate(f, mapping));
+
+    // data types
+    let scalar_type = if physical_plan.is_aggregate {
+        "f32"
+    } else {
+        "i32"
     };
+    let sentinel = if physical_plan.is_aggregate {
+        "0.0f"
+    } else {
+        // 'Dynamic Shader' parsing error: numeric literal not representable by target type: 2147483648i
+        // Parser sees the +ive integer first and overflows
+        // "-2147483648i"
+        "bitcast<i32>(0x80000000u)"
+    };
+
+    let (globals, write_logic) = if physical_plan.is_aggregate {
+        (
+            "var<workgroup> scratch: array<f32, 64>;",
+            r#"
+                // move value into shared scratchpad
+                scratch[l_idx] = val;
+
+                // Sync: wait for all 64 threads to finish
+                workgroupBarrier();
+
+                // Reduction Tree
+                // 32->16->...->1
+                for (var s = 32u; s > 0u; s >>= 1u) {
+                    if (l_idx < s) {
+                        scratch[l_idx] += scratch[l_idx + s];
+                    }
+
+                    // Sync
+                    workgroupBarrier();
+                }
+                // Write to the global memory
+                if (l_idx == 0u) {
+                    out_col[group_id.x] = scratch[0];
+                }
+            "#,
+        )
+    } else {
+        ("", "if (idx < params.row_count) { out_col[idx] = val; }")
+    };
+
+    // shader bindings
     let mut bindings = String::new();
 
     // Input bindings for every column from the mapping
     for binding_idx in mapping.values() {
         bindings.push_str(&format!(
-            "@group(0) @binding({}) var<storage, read> in_col_{}: array<i32>;\n",
-            binding_idx, binding_idx
+            "@group(0) @binding({binding_idx}) var<storage, read> in_col_{binding_idx}: array<{scalar_type}>;\n"
         ));
     }
 
     // output buffer
     let out_slot = mapping.len() as u32;
     bindings.push_str(&format!(
-        "@group(0) @binding({out_slot}) var<storage, read_write> out_col: array<i32>;\n",
+        "@group(0) @binding({out_slot}) var<storage, read_write> out_col: array<{scalar_type}>;\n",
     ));
 
     // uniform buffer
@@ -106,6 +153,7 @@ pub fn generate_fused_shader(
         uniform_slot = out_slot + 1
     ));
 
+    // Final Assembly
     format!(
         r#"
         struct QueryParams {{
@@ -113,65 +161,29 @@ pub fn generate_fused_shader(
         }}
 
         {bindings}
+        {globals}
 
         @compute @workgroup_size(64)
-        fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {{
+        fn main(
+            @builtin(global_invocation_id) global_id: vec3<u32>,
+            @builtin(local_invocation_id) local_id: vec3<u32>,
+            @builtin(workgroup_id) group_id: vec3<u32>
+        ) {{
             let idx = global_id.x;
-            if (idx >= params.row_count) {{ return; }}
+            let l_idx = local_id.x;
 
-            // Fused shader: Early exit if filter fails
-            if ({condition}) {{
-                out_col[idx] = {logic};
-            }} else {{
-                out_col[idx] = -2147483648; // Filtered out i32::Min
+            // init with neutral element (0.0 for sum, i32::MIN for project)
+            var val: {scalar_type} = {sentinel};
+
+            // Calculate logic only for valid rows
+            if (idx < params.row_count) {{
+                if ({condition}) {{
+                    val = {logic};
+                }}
             }}
+
+            {write_logic}
         }}
-    "#
-    )
-}
-
-pub fn generate_shader(
-    expr: &Expression,
-    mapping: &std::collections::BTreeMap<u32, u32>,
-) -> String {
-    let mut bindings = String::new();
-
-    // Input bindings for every column from the mapping
-    for binding_idx in mapping.values() {
-        bindings.push_str(&format!(
-            "@group(0) @binding({}) var<storage, read> in_col_{}: array<i32>;\n",
-            binding_idx, binding_idx
-        ));
-    }
-
-    // output buffer
-    let out_slot = mapping.len() as u32;
-    bindings.push_str(&format!(
-        "@group(0) @binding({out_slot}) var<storage, read_write> out_col: array<i32>;\n",
-    ));
-
-    // uniform buffer
-    bindings.push_str(&format!(
-        "@group(0) @binding({uniform_slot}) var<storage, read> params: QueryParams;\n",
-        uniform_slot = out_slot + 1
-    ));
-
-    let logic = translate(expr, mapping);
-
-    format!(
-        r#"
-            struct QueryParams {{
-                row_count: u32,
-            }}
-
-            {bindings}
-
-            @compute @workgroup_size(64)
-            fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {{
-                let idx = global_id.x;
-                if (idx >= params.row_count) {{ return; }}
-                out_col[idx] = {logic};
-            }}
-        "#
+    "#,
     )
 }
