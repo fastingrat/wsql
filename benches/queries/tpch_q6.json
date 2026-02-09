@@ -1,0 +1,231 @@
+{
+    "extension_uris": [],
+    "extensions": [
+        {
+            "extension_function": {
+                "extension_uri_reference": 0,
+                "function_anchor": 1,
+                "name": "add"
+            }
+        },
+        {
+            "extension_function": {
+                "function_anchor": 2,
+                "name": "mul"
+            }
+        },
+        {
+            "extension_function": {
+                "function_anchor": 3,
+                "name": "sum"
+            }
+        },
+        {
+            "extension_function": {
+                "function_anchor": 4,
+                "name": "gt"
+            }
+        },
+        {
+            "extension_function": {
+                "function_anchor": 5,
+                "name": "lt"
+            }
+        },
+        {
+            "extension_function": {
+                "function_anchor": 6,
+                "name": "and"
+            }
+        }
+    ],
+    "relations": [
+        {
+            "root": {
+                "input": {
+                    "aggregate": {
+                        "input": {
+                            "project": {
+                                "input": {
+                                    "filter": {
+                                        "input": {
+                                            "read": {
+                                                "base_schema": {
+                                                    "names": [
+                                                        "l_orderkey",
+                                                        "l_partkey",
+                                                        "l_suppkey",
+                                                        "l_linenumber",
+                                                        "l_quantity",
+                                                        "l_extendedprice",
+                                                        "l_discount",
+                                                        "l_tax",
+                                                        "l_returnflag",
+                                                        "l_linestatus",
+                                                        "l_shipdate"
+                                                    ],
+                                                    "struct": {
+                                                        "types": [
+                                                            {
+                                                                "i32": {}
+                                                            },
+                                                            {
+                                                                "i32": {}
+                                                            },
+                                                            {
+                                                                "i32": {}
+                                                            },
+                                                            {
+                                                                "i32": {}
+                                                            },
+                                                            {
+                                                                "fp32": {}
+                                                            },
+                                                            {
+                                                                "fp32": {}
+                                                            },
+                                                            {
+                                                                "fp32": {}
+                                                            },
+                                                            {
+                                                                "fp32": {}
+                                                            },
+                                                            {
+                                                                "string": {}
+                                                            },
+                                                            {
+                                                                "string": {}
+                                                            },
+                                                            {
+                                                                "i32": {}
+                                                            }
+                                                        ]
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "condition": {
+                                            "scalar_function": {
+                                                "function_reference": 6,
+                                                "arguments": [
+                                                    {
+                                                        "value": {
+                                                            "scalar_function": {
+                                                                "function_reference": 4,
+                                                                "arguments": [
+                                                                    {
+                                                                        "value": {
+                                                                            "selection": {
+                                                                                "direct_reference": {
+                                                                                    "struct_field": {
+                                                                                        "field": 10
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "value": {
+                                                                            "literal": {
+                                                                                "i32": 8766
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                ]
+                                                            }
+                                                        }
+                                                    },
+                                                    {
+                                                        "value": {
+                                                            "scalar_function": {
+                                                                "function_reference": 5,
+                                                                "arguments": [
+                                                                    {
+                                                                        "value": {
+                                                                            "selection": {
+                                                                                "direct_reference": {
+                                                                                    "struct_field": {
+                                                                                        "field": 4
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    },
+                                                                    {
+                                                                        "value": {
+                                                                            "literal": {
+                                                                                "fp32": 24.0
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                ]
+                                                            }
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    }
+                                },
+                                "expressions": [
+                                    {
+                                        "scalar_function": {
+                                            "function_reference": 2,
+                                            "arguments": [
+                                                {
+                                                    "value": {
+                                                        "selection": {
+                                                            "direct_reference": {
+                                                                "struct_field": {
+                                                                    "field": 5
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                {
+                                                    "value": {
+                                                        "selection": {
+                                                            "direct_reference": {
+                                                                "struct_field": {
+                                                                    "field": 6
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        "measures": [
+                            {
+                                "measure": {
+                                    "function_reference": 3,
+                                    "arguments": [
+                                        {
+                                            "value": {
+                                                "selection": {
+                                                    "direct_reference": {
+                                                        "struct_field": {
+                                                            "field": 0
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                "names": [
+                    "revenue"
+                ]
+            }
+        }
+    ]
+}

@@ -42,18 +42,24 @@ pub fn collect_columns(expr: &Expression, cols: &mut std::collections::BTreeSet<
 pub fn translate(
     expr: &Expression,
     mapping: &std::collections::BTreeMap<u32, u32>,
-    column_types: &std::collections::HashMap<u32, arrow::datatypes::DataType>,
+    _column_types: &std::collections::HashMap<u32, arrow::datatypes::DataType>,
     is_aggregate: bool,
 ) -> String {
     match expr {
         Expression::Literal(val) => match val {
-            LiteralTypes::I32(v) | LiteralTypes::Date(v) => format!("{}i", v),
+            LiteralTypes::I32(v) | LiteralTypes::Date(v) => {
+                if !is_aggregate {
+                    format!("{}i", v)
+                } else {
+                    format!("{}.0f", v)
+                }
+            }
             LiteralTypes::F32(v) => format!("{}f", v),
         },
         Expression::Column(i) => {
             let binding_idx = mapping.get(i).expect("Column mapping missing");
-            let dtype = column_types.get(i).expect("Missing columns type");
-            if is_aggregate && dtype.is_integer() {
+            // let dtype = column_types.get(i).expect("Missing columns type");
+            if is_aggregate {
                 format!("f32(in_col_{}[idx])", binding_idx)
             } else {
                 format!("in_col_{}[idx]", binding_idx)
@@ -61,56 +67,56 @@ pub fn translate(
         }
         Expression::Add(l, r) => format!(
             "({} + {})",
-            translate(l, mapping, column_types, is_aggregate),
-            translate(r, mapping, column_types, is_aggregate)
+            translate(l, mapping, _column_types, is_aggregate),
+            translate(r, mapping, _column_types, is_aggregate)
         ),
         Expression::Subtract(l, r) => {
             format!(
                 "({} - {})",
-                translate(l, mapping, column_types, is_aggregate),
-                translate(r, mapping, column_types, is_aggregate)
+                translate(l, mapping, _column_types, is_aggregate),
+                translate(r, mapping, _column_types, is_aggregate)
             )
         }
         Expression::Multiply(l, r) => {
             format!(
                 "({} * {})",
-                translate(l, mapping, column_types, is_aggregate),
-                translate(r, mapping, column_types, is_aggregate)
+                translate(l, mapping, _column_types, is_aggregate),
+                translate(r, mapping, _column_types, is_aggregate)
             )
         }
         Expression::GreaterThan(l, r) => {
             format!(
                 "({} > {})",
-                translate(l, mapping, column_types, is_aggregate),
-                translate(r, mapping, column_types, is_aggregate)
+                translate(l, mapping, _column_types, is_aggregate),
+                translate(r, mapping, _column_types, is_aggregate)
             )
         }
         Expression::LessThan(l, r) => {
             format!(
                 "({} < {})",
-                translate(l, mapping, column_types, is_aggregate),
-                translate(r, mapping, column_types, is_aggregate)
+                translate(l, mapping, _column_types, is_aggregate),
+                translate(r, mapping, _column_types, is_aggregate)
             )
         }
         Expression::Equal(l, r) => {
             format!(
                 "({} == {})",
-                translate(l, mapping, column_types, is_aggregate),
-                translate(r, mapping, column_types, is_aggregate)
+                translate(l, mapping, _column_types, is_aggregate),
+                translate(r, mapping, _column_types, is_aggregate)
             )
         }
         Expression::And(l, r) => {
             format!(
                 "({} && {})",
-                translate(l, mapping, column_types, is_aggregate),
-                translate(r, mapping, column_types, is_aggregate)
+                translate(l, mapping, _column_types, is_aggregate),
+                translate(r, mapping, _column_types, is_aggregate)
             )
         }
         Expression::Or(l, r) => {
             format!(
                 "({} || {})",
-                translate(l, mapping, column_types, is_aggregate),
-                translate(r, mapping, column_types, is_aggregate)
+                translate(l, mapping, _column_types, is_aggregate),
+                translate(r, mapping, _column_types, is_aggregate)
             )
         }
     }

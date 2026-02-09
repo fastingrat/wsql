@@ -6,6 +6,11 @@ Inspired by [Sirius](https://vldb.org/cidrdb/papers/2026/p12-yogatama.pdf), wsql
   <img src=".github/images/wSQL 1.png" alt="Diagram" width="900"/>
 </p>
 
+## Benchmarking
+1. Generate data - `duckdb -c "INSTALL tpch; LOAD tpch; CALL dbgen(sf=1); COPY lineitem TO 'benches/data/lineitem.parquet' (FORMAT PARQUET);"`
+2. Run Bench - `cargo bench --bench q6_bench`
+3. Results - Query time: 595.732625ms (Horrible) and Query result: Aggregate(1793214100.0) (Wrong 1793214130.04)
+
 ### Current Target - TPC-H Q6
 #### Step 1: Basics
 - [x] **OpenDAL / Parquet Integration:** Streaming bytes to CPU.
@@ -30,11 +35,11 @@ Inspired by [Sirius](https://vldb.org/cidrdb/papers/2026/p12-yogatama.pdf), wsql
 - [x] **Global Result Buffer:** Downloading a single number instead of a whole column.
 
 #### Step 4: Substrait Relational
-- [ ] **Relational Walker:** Handling `ReadRel` -> `FilterRel` -> `ProjectRel` -> `AggregateRel`.
-- [ ] **Schema Mapping:** Linking Parquet column names (e.g., `l_quantity`) to Substrait indices.
+- [x] **Relational Walker:** Handling `ReadRel` -> `FilterRel` -> `ProjectRel` -> `AggregateRel`.
+- [x] **Schema Mapping:** Linking Parquet column names (e.g., `l_quantity`) to Substrait indices.
 
 #### Step 5: Benchmarking & Scale
-- [ ] **TPC-H Data Gen:** Generating `lineitem.parquet` at Scale Factor 1 (6 million rows).
-- [ ] **Benchmarking Harness:** Measuring end-to-end time (I/O + Upload + Compute + Download).
-- [ ] **Comparative Analysis:** Comparing against **DuckDB** (CPU) and **DataFusion**.
+- [x] **TPC-H Data Gen:** Generating `lineitem.parquet` at Scale Factor 1 (6 million rows).
+- [x] **Benchmarking Harness:** Measuring end-to-end time (I/O + Upload + Compute + Download).
+- [x] **Comparative Analysis:** Comparing against **DuckDB** (CPU) and **DataFusion**.
 
