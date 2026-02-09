@@ -1,3 +1,5 @@
+use arrow::array::AsArray;
+
 use crate::{gpu::Gpu, jit, sub::PhysicalPlan};
 
 pub struct QueryExecutor {
@@ -10,16 +12,19 @@ pub enum QueryResult {
     Aggregate(f32),
 }
 
+pub struct CompiledQuery {
+    pub pipeline: wgpu::ComputePipeline,
+    pub mapping: std::collections::BTreeMap<u32, u32>,
+    pub used_cols: std::collections::BTreeSet<u32>,
+    pub physical_plan: PhysicalPlan,
+}
+
 impl QueryExecutor {
     pub fn new(gpu: Gpu) -> Self {
         Self { gpu }
     }
 
-    pub async fn execute(
-        &self,
-        batch: &arrow::record_batch::RecordBatch,
-        physical_plan: &PhysicalPlan,
-    ) -> anyhow::Result<QueryResult> {
+    pub fn compile(&self, physical_plan: PhysicalPlan) -> anyhow::Result<CompiledQuery> {
         let mut used_cols = std::collections::BTreeSet::new();
         // Columns in the query
         jit::collect_columns(&physical_plan.projection, &mut used_cols);
@@ -36,12 +41,14 @@ impl QueryExecutor {
         }
 
         // Generate shader from mapping
-        let wgsl = jit::generate_shader(physical_plan, &mapping);
+        let wgsl = jit::generate_shader(&physical_plan, &mapping);
+
         if cfg!(debug_assertions) {
             wgsl.lines()
                 .enumerate()
                 .for_each(|(i, l)| println!("{:>3} | {}", i + 1, l));
         }
+
         // LOAD SHADER
         let shader = self
             .gpu
@@ -64,17 +71,30 @@ impl QueryExecutor {
                 cache: None,
             });
 
+        Ok(CompiledQuery {
+            pipeline,
+            mapping,
+            used_cols,
+            physical_plan,
+        })
+    }
+
+    pub async fn execute(
+        &self,
+        query: &CompiledQuery,
+        batch: &arrow::record_batch::RecordBatch,
+    ) -> anyhow::Result<QueryResult> {
         // BUFFERS
         let row_count = batch.num_rows() as u32;
         let workgroup_count = row_count.div_ceil(64);
-        let output_len = if physical_plan.is_aggregate {
+        let output_len = if query.physical_plan.is_aggregate {
             // aggregtion 6400 rows need 100 write operation
             workgroup_count
         } else {
             // projection 6400 rows needs 6400 write operations
             row_count
         };
-        let size = (output_len * 4) as u64;
+        let size = ((output_len * 4) as u64).max(64); // CHECK
         let mut input_buffers: Vec<wgpu::Buffer> = Vec::new();
         let output_buffer = self.gpu.output_buffer("out", size);
         let stagging_buffer = self.gpu.stagging_buffer("stage", size);
@@ -82,36 +102,36 @@ impl QueryExecutor {
 
         // BIND GROUP
         // Fill Input buffers
-        for &col_idx in &used_cols {
+        for &col_idx in &query.used_cols {
             let data = batch.column(col_idx as usize);
 
-            match data.data_type() {
-                arrow::datatypes::DataType::Int32 => {
-                    let array = data
-                        .as_any()
-                        .downcast_ref::<arrow::array::PrimitiveArray<arrow::datatypes::Int32Type>>()
-                        .unwrap();
-                    input_buffers.push(self.gpu.input_buffer("col", array.values()));
-                }
-                arrow::datatypes::DataType::Float32 => {
-                    let array = data.as_any().downcast_ref::<arrow::array::PrimitiveArray<arrow::datatypes::Float32Type>>().unwrap();
-                    input_buffers.push(self.gpu.input_buffer("col", array.values()));
-                }
+            let buf = match data.data_type() {
+                arrow::datatypes::DataType::Int32 => self.gpu.input_buffer(
+                    "col",
+                    data.as_primitive::<arrow::datatypes::Int32Type>().values(),
+                ),
+
+                arrow::datatypes::DataType::Float32 => self.gpu.input_buffer(
+                    "col",
+                    data.as_primitive::<arrow::datatypes::Float32Type>()
+                        .values(),
+                ),
                 _ => anyhow::bail!("Unsupported datatype"),
             };
+            input_buffers.push(buf);
         }
 
         // bind group entries from input buffers
-        let mut entries = Vec::new();
+        let mut entries: Vec<_> = input_buffers
+            .iter()
+            .enumerate()
+            .map(|(i, b)| wgpu::BindGroupEntry {
+                binding: i as u32,
+                resource: b.as_entire_binding(),
+            })
+            .collect();
 
-        for (binding_idx, buf) in input_buffers.iter().enumerate() {
-            entries.push(wgpu::BindGroupEntry {
-                binding: binding_idx as u32,
-                resource: buf.as_entire_binding(),
-            });
-        }
-
-        let out_idx = used_cols.len() as u32;
+        let out_idx = input_buffers.len() as u32;
         // output buffer
         entries.push(wgpu::BindGroupEntry {
             binding: out_idx,
@@ -129,7 +149,7 @@ impl QueryExecutor {
             .device
             .create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Dynamic Bind Group"),
-                layout: &pipeline.get_bind_group_layout(0),
+                layout: &query.pipeline.get_bind_group_layout(0),
                 entries: &entries,
             });
 
@@ -144,10 +164,10 @@ impl QueryExecutor {
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("Compute Pass"),
-                timestamp_writes: None,
+                ..Default::default()
             });
 
-            compute_pass.set_pipeline(&pipeline);
+            compute_pass.set_pipeline(&query.pipeline);
             compute_pass.set_bind_group(0, &bind_group, &[]);
             compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
         }
@@ -182,14 +202,14 @@ impl QueryExecutor {
         let result_val = receiver
             .await
             .map_err(|_| anyhow::anyhow!("Channel closed"))?;
+
         result_val.map_err(|e| anyhow::anyhow!("Buffer mapping failed: {e}"))?;
 
         let data = buffer_slice.get_mapped_range();
 
-        let final_result = if physical_plan.is_aggregate {
+        let final_result = if query.physical_plan.is_aggregate {
             let partials: &[f32] = bytemuck::cast_slice(&data);
-            let actual_partials = &partials[0..workgroup_count as usize];
-            QueryResult::Aggregate(actual_partials.iter().sum())
+            QueryResult::Aggregate(partials[0..workgroup_count as usize].iter().sum())
         } else {
             let mut result = bytemuck::cast_slice(&data).to_vec();
             result.truncate(row_count as usize);
@@ -199,5 +219,20 @@ impl QueryExecutor {
         drop(data);
         stagging_buffer.unmap();
         Ok(final_result)
+    }
+}
+
+impl QueryResult {
+    pub fn accumulate(&mut self, other: QueryResult) -> anyhow::Result<()> {
+        match (self, other) {
+            (QueryResult::Projection(v1), QueryResult::Projection(v2)) => {
+                v1.extend(v2);
+            }
+            (QueryResult::Aggregate(s1), QueryResult::Aggregate(s2)) => {
+                *s1 += s2;
+            }
+            _ => anyhow::bail!("Type mismatch during accumulation"),
+        }
+        Ok(())
     }
 }

@@ -60,14 +60,16 @@ async fn test_simple_substrait_lite() {
     );
 
     // PhysicalPlan
-    let physica_plan = wsql::sub::PhysicalPlan {
+    let physical_plan = wsql::sub::PhysicalPlan {
         projection: query,
         filter: None,
         is_aggregate: false,
     };
 
+    let compiled_query = executor.compile(physical_plan).unwrap();
+
     if let wsql::executor::QueryResult::Projection(result) =
-        executor.execute(&batch, &physica_plan).await.unwrap()
+        executor.execute(&compiled_query, &batch).await.unwrap()
     {
         assert_eq!(result, vec![23, 28, 33, 38, 13, 18, 3, 8]);
     }
@@ -109,9 +111,11 @@ async fn test_simple_filter_sparse() {
         is_aggregate: false,
     };
 
+    let compiled_query = executor.compile(physical_plan).unwrap();
+
     // [-2147483648, -2147483648, -2147483648, -2147483648, -2147483648, 13, 14, 15, 16]
     if let wsql::executor::QueryResult::Projection(result) =
-        executor.execute(&batch, &physical_plan).await.unwrap()
+        executor.execute(&compiled_query, &batch).await.unwrap()
     {
         assert_eq!(result[0], -2147483648);
         assert_eq!(result[4], -2147483648);
@@ -146,8 +150,9 @@ async fn test_gpu_aggregate_sum() {
         ],
     )
     .unwrap();
+    let compiled_query = executor.compile(physical_plan).unwrap();
     if let wsql::executor::QueryResult::Aggregate(result) =
-        executor.execute(&batch, &physical_plan).await.unwrap()
+        executor.execute(&compiled_query, &batch).await.unwrap()
     {
         assert_eq!(result, 50.0)
     }
