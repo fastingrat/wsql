@@ -120,15 +120,10 @@ impl QueryExecutor {
                     "col",
                     data.as_primitive::<arrow::datatypes::Date32Type>().values(),
                 ),
-                // Duckdb generates Decimal128, downcast to f32
-                arrow::datatypes::DataType::Decimal128(_precision, scale) => {
+                // Duckdb generates Decimal128, move f32 downcasting to GPU
+                arrow::datatypes::DataType::Decimal128(_precision, _scale) => {
                     let array = data.as_primitive::<arrow::datatypes::Decimal128Type>();
-
-                    let divisor = 10f32.powi(*scale as i32);
-                    let f32_values: Vec<f32> =
-                        array.values().iter().map(|&v| v as f32 / divisor).collect();
-
-                    self.gpu.input_buffer("col_f32_from_dec", &f32_values)
+                    self.gpu.input_buffer("col_raw_dec", array.values())
                 }
                 _ => anyhow::bail!("Unsupported datatype: {:?}", data.data_type()),
             };

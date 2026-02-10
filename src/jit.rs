@@ -42,7 +42,7 @@ pub fn collect_columns(expr: &Expression, cols: &mut std::collections::BTreeSet<
 pub fn translate(
     expr: &Expression,
     mapping: &std::collections::BTreeMap<u32, u32>,
-    _column_types: &std::collections::HashMap<u32, arrow::datatypes::DataType>,
+    column_types: &std::collections::HashMap<u32, arrow::datatypes::DataType>,
     is_aggregate: bool,
 ) -> String {
     match expr {
@@ -58,65 +58,81 @@ pub fn translate(
         },
         Expression::Column(i) => {
             let binding_idx = mapping.get(i).expect("Column mapping missing");
-            // let dtype = column_types.get(i).expect("Missing columns type");
-            if is_aggregate {
-                format!("f32(in_col_{}[idx])", binding_idx)
-            } else {
-                format!("in_col_{}[idx]", binding_idx)
+            let dtype = column_types.get(i).expect("Missing column type");
+            match dtype {
+                arrow::datatypes::DataType::Decimal128(_, scale) => {
+                    let divisor = 10f32.powi(*scale as i32);
+                    // Reconstruct from i128 (vec4<i32>).
+                    // x:0-31 Bits, y:32-63 Bits, z:64-95 Bits, w: 96-127 Bits
+                    // Throwing away first 64 Bits as they are just 0s
+                    format!(
+                        "((f32(u32(in_col_{}[idx].x)) + f32(in_col_{}[idx].y) * 4294967296.0) / {:?})",
+                        binding_idx, binding_idx, divisor
+                    )
+                }
+                arrow::datatypes::DataType::Float32 => format!("in_col_{}[idx]", binding_idx),
+                _ => {
+                    if is_aggregate {
+                        format!("f32(in_col_{}[idx])", binding_idx)
+                    } else {
+                        // default is i32
+                        format!("in_col_{}[idx]", binding_idx)
+                    }
+                }
             }
         }
         Expression::Add(l, r) => format!(
             "({} + {})",
-            translate(l, mapping, _column_types, is_aggregate),
-            translate(r, mapping, _column_types, is_aggregate)
+            translate(l, mapping, column_types, is_aggregate),
+            translate(r, mapping, column_types, is_aggregate)
         ),
         Expression::Subtract(l, r) => {
             format!(
                 "({} - {})",
-                translate(l, mapping, _column_types, is_aggregate),
-                translate(r, mapping, _column_types, is_aggregate)
+                translate(l, mapping, column_types, is_aggregate),
+                translate(r, mapping, column_types, is_aggregate)
             )
         }
         Expression::Multiply(l, r) => {
             format!(
                 "({} * {})",
-                translate(l, mapping, _column_types, is_aggregate),
-                translate(r, mapping, _column_types, is_aggregate)
+                translate(l, mapping, column_types, is_aggregate),
+                translate(r, mapping, column_types, is_aggregate)
             )
         }
         Expression::GreaterThan(l, r) => {
             format!(
                 "({} > {})",
-                translate(l, mapping, _column_types, is_aggregate),
-                translate(r, mapping, _column_types, is_aggregate)
+                translate(l, mapping, column_types, is_aggregate),
+                translate(r, mapping, column_types, is_aggregate)
             )
         }
         Expression::LessThan(l, r) => {
             format!(
                 "({} < {})",
-                translate(l, mapping, _column_types, is_aggregate),
-                translate(r, mapping, _column_types, is_aggregate)
+                translate(l, mapping, column_types, is_aggregate),
+                translate(r, mapping, column_types, is_aggregate)
             )
         }
         Expression::Equal(l, r) => {
             format!(
                 "({} == {})",
-                translate(l, mapping, _column_types, is_aggregate),
-                translate(r, mapping, _column_types, is_aggregate)
+                translate(l, mapping, column_types, is_aggregate),
+                translate(r, mapping, column_types, is_aggregate)
             )
         }
         Expression::And(l, r) => {
             format!(
                 "({} && {})",
-                translate(l, mapping, _column_types, is_aggregate),
-                translate(r, mapping, _column_types, is_aggregate)
+                translate(l, mapping, column_types, is_aggregate),
+                translate(r, mapping, column_types, is_aggregate)
             )
         }
         Expression::Or(l, r) => {
             format!(
                 "({} || {})",
-                translate(l, mapping, _column_types, is_aggregate),
-                translate(r, mapping, _column_types, is_aggregate)
+                translate(l, mapping, column_types, is_aggregate),
+                translate(r, mapping, column_types, is_aggregate)
             )
         }
     }
@@ -193,10 +209,10 @@ pub fn generate_shader(
 
     // Input bindings for every column from the mapping
     for (&col_idx, &binding_idx) in mapping {
-        let input_type = if physical_plan.column_types[&col_idx].is_floating() {
-            "f32"
-        } else {
-            "i32"
+        let input_type = match &physical_plan.column_types[&col_idx] {
+            arrow::datatypes::DataType::Float32 => "f32",
+            arrow::datatypes::DataType::Decimal128(_, _) => "vec4<i32>",
+            _ => "i32",
         };
 
         bindings.push_str(&format!(

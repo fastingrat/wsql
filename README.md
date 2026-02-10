@@ -12,13 +12,14 @@ Inspired by [Sirius](https://vldb.org/cidrdb/papers/2026/p12-yogatama.pdf), wsql
 
 ### Results
 
-|Run   | Query time   | Query result |
-|------|--------------|--------------|
-|Target| <200ms       | 1793214130.04|
-|Base  | 595.732625ms | 1793214100.0 |
+|Run   | Query time | Query result  |
+|------|------------|---------------|
+|Target| <200ms     | 1793214130.04 |
+|Base  | ~580ms     | 1793214100.0  |
+|LHF 1 | ~560ms     | 1793214100.0  |
 
 ### Low Hanging Fruits
-1. [ ] Either move Decimal128 downcast to GPU or add support for it.
+1. [x] Either move Decimal128 downcast to GPU or add support for it.
     - Even with wgpu extension natively Decimal128 isnt supported, downcasting to f64 is possible and more precise but it will be both complex and slow.
     - Downcasting to f32
 2. [ ] Increase batch size from 64 or make it dynamic.

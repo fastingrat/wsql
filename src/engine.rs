@@ -22,12 +22,9 @@ impl QueryEngine {
 
         let schema = reader.schema();
         for (i, field) in schema.fields().iter().enumerate() {
-            let arrow_type = match field.data_type() {
-                arrow::datatypes::DataType::Decimal128(_, _) => arrow::datatypes::DataType::Float32,
-                other => other.clone(),
-            };
-
-            physical_plan.column_types.insert(i as u32, arrow_type);
+            physical_plan
+                .column_types
+                .insert(i as u32, field.data_type().clone());
         }
         let compiled = self.executor.compile(physical_plan)?;
 
