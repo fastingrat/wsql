@@ -9,9 +9,28 @@ Inspired by [Sirius](https://vldb.org/cidrdb/papers/2026/p12-yogatama.pdf), wsql
 ## Benchmarking
 1. Generate data - `duckdb -c "INSTALL tpch; LOAD tpch; CALL dbgen(sf=1); COPY lineitem TO 'benches/data/lineitem.parquet' (FORMAT PARQUET);"`
 2. Run Bench - `cargo bench --bench q6_bench`
-3. Results - Query time: 595.732625ms (Horrible) and Query result: Aggregate(1793214100.0) (Wrong 1793214130.04)
 
-### Current Target - TPC-H Q6
+### Results
+
+|Run   | Query time   | Query result |
+|------|--------------|--------------|
+|Target| <200ms       | 1793214130.04|
+|Base  | 595.732625ms | 1793214100.0 |
+
+### Low Hanging Fruits
+1. [ ] Either move Decimal128 downcast to GPU or add support for it.
+    - Even with wgpu extension natively Decimal128 isnt supported, downcasting to f64 is possible and more precise but it will be both complex and slow.
+    - Downcasting to f32
+2. [ ] Increase batch size from 64 or make it dynamic.
+3. [ ] Use same buffer across batches
+4. [ ] Prep n+1 batch while n is executing on GPU
+5. [ ] Use Better way to poll GPU
+6. [ ] Remove the hacky bits
+
+<details>
+    <summary> TPCH Q6 bench progress (Completed)</summary>
+
+### TPC-H Q6
 #### Step 1: Basics
 - [x] **OpenDAL / Parquet Integration:** Streaming bytes to CPU.
 - [x] **Arrow Memory Layout:** Standardized buffer management.
@@ -43,3 +62,4 @@ Inspired by [Sirius](https://vldb.org/cidrdb/papers/2026/p12-yogatama.pdf), wsql
 - [x] **Benchmarking Harness:** Measuring end-to-end time (I/O + Upload + Compute + Download).
 - [x] **Comparative Analysis:** Comparing against **DuckDB** (CPU) and **DataFusion**.
 
+</details>
